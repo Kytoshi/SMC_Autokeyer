@@ -1,18 +1,16 @@
 # SMC AUTOKEYER
 Company: **Supermicro**
 
-Author: Koichi Kodama
+Author: **Koichi Kodama**
 
-Description:
+Description: **Developed to automate inventory count for internal program.**
 
-Developed to automate inventory count for internal program.
+## Autokey.py & minus1.py:
 
-### Autokey.py & minus1.py:
+**Initial prototype programs which had the functionality but was run in command line.**
 
-Initial prototype programs which had the functionality but was run in command line.
+## PiCountKeyer_v2.py:
 
-### PiCountKeyer_v2.py:
-
-Revamped version initial programs merged together with added UI elements for internal distribution.
+**Revamped version initial programs merged together with added UI elements for internal distribution.**
 
 
