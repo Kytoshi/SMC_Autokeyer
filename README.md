@@ -1,19 +1,21 @@
+# 🧩 Warehouse Physical Inventory Count Tool (Supermicro)
+*A script to increase Physical Inventory Count Efficiency.*
 
-### AutoKeyer
+---
 
-**Description:** tool to automate physical count keying in based off excel sheet to increase efficency. Updated to include visual UI instead of terminal prompts.
+## 📘 Overview
+This python tool helps speed up efficiency for physical count by doing automated keying in based off a users excel sheet. Aids in reducing human error and allows more focus for checking the items physically.
+Includes a modern GUI to help guide users to the specific task they desire.
 
-**<u> Files: </u>**
+---
 
-- AutoKey.py
+## ⚙️ Features
+- ✅ Transcribes a list of numbers into a internal keying program
+- ✅ Allows mass removal of numbers in the case of a malfunction
 
-  - Asks for an input excel file, sheet name, and starting cell of the table you are inputing
+---
 
-- minus1.py
-
-  - If a mistake was made in the key program, to reset the list, replaces all boxes with "-1" as it is a number that can be replaced without popping up a error message.
-  - Once minus1.py has run, you can use the AutoKey.py script again.
-
-- PICountKeyer_v2.py (2025)
-
-  - Version 2 of the program which combines both functionality of "AutoKey.py" and "minus1.py" into a singular program which can be navigated with operational UI elements.
+## 🧰 Requirements
+- Windows 10 or later  
+- Python 3.13+  
+- Microsoft Excel (for COM automation)
