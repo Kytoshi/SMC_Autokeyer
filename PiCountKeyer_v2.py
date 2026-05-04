@@ -1,736 +1,618 @@
 import tkinter as tk
+from tkinter import CENTER, filedialog
 import customtkinter as ctk
 import openpyxl
-from tkinter import *
-from tkinter import filedialog
-from PIL import Image, ImageTk
 import pyautogui
 import time
 import threading
-from pynput import keyboard
+import sys
+import os
+from pynput import keyboard as kb
+
+# ─── Utilities ────────────────────────────────────────────────────────────────
 
 def resource_path(relative_path):
-    """ Get absolute path to resource, works for dev and for PyInstaller """
+    """Resolve asset paths for both dev and PyInstaller."""
     try:
-        # PyInstaller creates a temp folder and stores path in _MEIPASS
         base_path = sys._MEIPASS
     except Exception:
         base_path = os.path.abspath(".")
     return os.path.join(base_path, relative_path)
 
-##### Program Global Settings #####
+# ─── Theme ────────────────────────────────────────────────────────────────────
 
-ctk.set_appearance_mode("System")
-ctk.set_default_color_theme("blue")
+BG         = "#0f1117"
+SURFACE    = "#1a1d27"
+BORDER     = "#2a2d3e"
+TEXT       = "#ffffff"
+SUBTEXT    = "#94a3b8"
+ACCENT     = "#22c55e"
+ACCENT_HOV = "#16a34a"
+ERROR      = "#ef4444"
+HEADER_BG  = "#16213e"
 
-global stop_flag, entryVar, labelVar, cellVar, pathVar, sheetVar, validExcel
-stop_flag = False
+ctk.set_appearance_mode("dark")
+ctk.set_default_color_theme("green")
+
+# ─── Global State ─────────────────────────────────────────────────────────────
+
+stop_event = threading.Event()
+excel_lock = threading.Lock()
 validExcel = []
+entryVar   = None   # initialized in ClearPage
+pathVar    = None   # initialized in KeyPage
+cellVar    = None   # initialized in KeyPage
+sheetVar   = None   # initialized in KeyPage
 
-##### Clear Page Configuration #####
-""" Page for the clearing function input """
+
+# ─── ClearPage ────────────────────────────────────────────────────────────────
 
 class ClearPage(ctk.CTkFrame):
     def __init__(self, parent, controller):
         super().__init__(parent)
         self.controller = controller
+        self.configure(fg_color=BG)
 
-        global entryVar, labelVar
-
+        global entryVar
         entryVar = tk.StringVar()
-        labelVar = tk.StringVar()
 
-        self.configure(fg_color="#384959")
+        # Header
+        header = ctk.CTkFrame(self, fg_color=HEADER_BG, height=60, corner_radius=0)
+        header.place(relx=0, rely=0, relwidth=1)
 
-        title2 = ctk.CTkLabel(self,
-        text="C L E A R", 
-        font=("Inter", 26, "bold"), 
-        fg_color="#6A89A7",
-        text_color="white", 
-        anchor="center", 
-        width=200,
-        height=50
+        ctk.CTkButton(
+            header, text="← Back",
+            font=("Inter", 13), width=80, height=36,
+            fg_color="transparent", text_color=SUBTEXT, hover_color=SURFACE,
+            command=self.backhome
+        ).place(relx=0.03, rely=0.5, anchor="w")
+
+        ctk.CTkLabel(
+            header, text="C L E A R",
+            font=("Inter", 20, "bold"), text_color=TEXT, fg_color="transparent"
+        ).place(relx=0.5, rely=0.5, anchor=CENTER)
+
+        # Card
+        card = ctk.CTkFrame(self, fg_color=SURFACE, corner_radius=14)
+        card.place(relx=0.5, rely=0.57, anchor=CENTER, relwidth=0.78, relheight=0.62)
+
+        ctk.CTkLabel(
+            card,
+            text="A 5-second countdown starts after Confirm.\nSwitch to the PI Count box before time runs out.",
+            font=("Inter", 12, "italic"), text_color=SUBTEXT, justify="center"
+        ).place(relx=0.5, rely=0.17, anchor=CENTER)
+
+        ctk.CTkLabel(
+            card, text="How many boxes do you need to clear?",
+            font=("Inter", 15, "bold"), text_color=TEXT
+        ).place(relx=0.5, rely=0.36, anchor=CENTER)
+
+        self.clear_entry = ctk.CTkEntry(
+            card, placeholder_text="Enter number of boxes...",
+            width=300, height=40, border_color=BORDER, fg_color=BG, text_color=TEXT,
+            textvariable=entryVar
         )
-        title2.place(relx=0.5, rely=0.2, anchor=CENTER)
+        self.clear_entry.place(relx=0.5, rely=0.54, anchor=CENTER)
 
-        # BACK BUTTON ---
-
-        back_default_img = ImageTk.PhotoImage(Image.open("components/defaultback.png").resize((30, 30), Image.Resampling.BICUBIC))
-        
-        self.back_button = ctk.CTkButton(self, 
-            image=back_default_img, 
-            width=20,
-            height=20,
-            text="",
-            fg_color="transparent",
-            hover_color="#6A89A7",
-            command=lambda: self.backhome()
-            )
-        self.back_button.place(relx=0.1, rely=0.2, anchor=CENTER)
-
-        prompt2 = ctk.CTkLabel(self,
-        text="How many boxes do you need to clear?",
-        font=("Inter", 15, "bold"),
-        text_color="white",
-        anchor="center",
-        width=200
+        self.error_label = ctk.CTkLabel(
+            card, text="", font=("Inter", 12), text_color=ERROR
         )
-        prompt2.place(relx=0.5, rely=0.35, anchor=CENTER)
+        self.error_label.place(relx=0.5, rely=0.67, anchor=CENTER)
 
-        promptDesc = ctk.CTkLabel(self,
-        text="Note: A 5 Second Countdown will start after pressing Confirm. \n Please ensure you are ready to select the PI Count Box...",
-        font=("Inter", 13, "italic"),
-        text_color="white",
-        anchor="center",
-        width=200
-        )
-        promptDesc.place(relx=0.5, rely=0.42, anchor=CENTER)
-
-        self.clear_entry = ctk.CTkEntry(self, 
-            placeholder_text="Enter number of boxes...", 
-            width=300, 
-            height=40, 
-            border_color="#6A89A7", 
-            textvariable=entryVar)
-        self.clear_entry.place(relx=0.5, rely=0.55, anchor=CENTER)
-
-        begin_clearing_button = ctk.CTkButton(self, 
-            text="Confirm", 
-            font=("Inter", 17, "bold"), 
-            width=200, 
-            height=40,
-            fg_color="#88BDF2",
-            text_color="black", 
-            command=self.validate_input)
-        begin_clearing_button.place(relx=0.5, rely=0.75, anchor=CENTER)
+        ctk.CTkButton(
+            card, text="Confirm",
+            font=("Inter", 15, "bold"), fg_color=ACCENT, hover_color=ACCENT_HOV,
+            text_color="#000000", width=200, height=40,
+            command=self.validate_input
+        ).place(relx=0.5, rely=0.82, anchor=CENTER)
 
     def validate_input(self):
         value = entryVar.get()
         try:
             if int(value) > 0:
-                self.clear_entry.configure(border_color="#6A89A7")  # Reset to default gray
+                self.error_label.configure(text="")
+                self.clear_entry.configure(border_color=BORDER)
                 self.controller.show_page("countDown")
             else:
                 raise ValueError
         except ValueError:
-            self.clear_entry.configure(border_color="red")  # Show red border
-    
+            self.error_label.configure(text="Please enter a positive whole number.")
+            self.clear_entry.configure(border_color=ERROR)
+
     def backhome(self):
-            """Return to Home and reset flags."""
-            entryVar.set("")  # Clear the entry field
-            self.clear_entry.configure(border_color="#6A89A7")  # Reset to default gray
-            self.controller.show_page("Home")  # Go back to home
+        entryVar.set("")
+        self.error_label.configure(text="")
+        self.clear_entry.configure(border_color=BORDER)
+        self.controller.show_page("Home")
 
-##### Count Down Page Configuration #####
-""" Supporter Page for the Clear Page."""
 
-class countDownPage(ctk.CTkFrame):
-    def __init__(self, parent, controller, countdown_time=5):
-        super().__init__(parent)
-        self.controller = controller
-        self.countdown_time = countdown_time
-        self._cancelled = False  # Add cancellation flag
-
-        self.configure(fg_color="#384959")
-
-        self.count_text = ctk.CTkLabel(self, 
-        text="Starting in", 
-        font=("Inter", 26, "bold"), 
-        text_color="White")
-        self.count_text.place(relx=0.5, rely=0.3, anchor=CENTER)
-
-        self.count = ctk.CTkLabel(self, 
-            text="", 
-            font=("Inter", 40, "bold"), 
-            text_color="white")
-        self.count.place(relx=0.5, rely=0.4, anchor=CENTER)
-
-        # Home button (hidden at start)
-        self.home_button = ctk.CTkButton(
-            self,
-            text="Return to Home",
-            font=("Inter", 17, "bold"),
-            fg_color="#88BDF2",
-            text_color="black",
-            width=200,
-            height=40,
-            command=lambda: self.return_home()  # Use method to return to home
-        )
-        self.home_button.place(relx=0.5, rely=0.6, anchor=CENTER)
-        self.home_button.lower()  # Hide initially
-
-        # Cancel button
-        self.cancel_button = ctk.CTkButton(
-            self,
-            text="Cancel",
-            font=("Inter", 17, "bold"),
-            fg_color="#88BDF2",
-            text_color="black",
-            width=200,
-            height=40,
-            command=self.cancel_countdown  # Cancel countdown
-        )
-        self.cancel_button.place(relx=0.5, rely=0.7, anchor=CENTER)
-
-    def cancel_countdown(self):
-        """Cancel countdown and reset the flag."""
-        self._cancelled = True  # Set the cancel flag
-        global stop_flag
-        stop_flag = True  # Set stop_flag to True to stop the process
-        self.count.configure(text="Cancelled", text_color="red")
-        entryVar.set("")  # Clear the entry field after processing
-        self.count_text.configure(text="")  # Clear the "Starting in" text
-        self.home_button.lift()  # Show the Home button so user can go back manually
-        self.cancel_button.lower()  # Hide the Cancel button after cancellation
-
-    def return_home(self):
-        """Return to Home and reset flags."""
-        global stop_flag
-        stop_flag = False  # Reset stop flag for future runs
-        self._cancelled = False  # Reset cancel flag
-        self.count_text.configure(text="Starting in", text_color="white")
-        self.controller.show_page("Home")  # Go back to home
-
-    def start_countdown(self):
-        self.controller.pages["Clear"].clear_entry.configure(border_color="#6A89A7")
-        self.remaining = self.countdown_time
-        self.cancel_button.lift()
-        self.home_button.lower()  # Hide button if revisiting
-        self.count.configure(text="", text_color="white")
-        self._update_timer()
-
-    def _update_timer(self):
-        if self.remaining >= 0 and not self._cancelled:  # Check if not cancelled
-            self.count.configure(text=self.remaining)
-            self.remaining -= 1
-            self.update()  # Force UI update to display Cancel button
-            self.after(1000, self._update_timer)
-        else:
-            if not self._cancelled:
-                self.count_text.configure(text="")
-                self.count.configure(text="Clearing has started!")
-                self.after(500, self.on_clear_finished)  # Call on_clear_finished after countdown
-            else:
-                # If cancelled, stop further action and reset
-                self.count.configure(text="Cancelled", text_color="red")
-
-    def on_clear_finished(self):
-        """Start the clearing process in a separate thread."""
-        thread = threading.Thread(target=self.start_clear_thread)
-        thread.daemon = True # Make thread a daemon so it exits when the main program exits
-        thread.start()
-
-    def start_clear_thread(self):
-        """Runs the clearing logic and updates UI from main thread."""
-        self.start_clear()
-
-    def start_clear(self):
-        """Converts the entry value into an integer and starts the clearing process; cancels process if stop_flag is set."""
-        global entryVar, stop_flag, labelVar
-        boxes = entryVar.get()
-        try:
-            boxes = int(boxes)
-        except ValueError:
-            self.count.configure(text="Invalid input", text_color="red")
-            return
-
-        labelVar.set(boxes)
-        entryVar.set("")  # Clear the entry field after processing
-
-        for count in range(boxes):
-            if stop_flag:
-                print("Process stopped by user.")
-                break
-            self.clear_boxes(-1)
-            time.sleep(0.1)  # Optional: Adjust time delay between inputs if needed
-
-        if not stop_flag:
-            self.after(1000, self._update_done)  # Update UI after process is done
-        else:
-            self.after(1000, self._update_cancelled)  # Update UI after process is cancelled
-
-    def _update_done(self):
-        """Update the UI after the clearing process is done."""
-        self.count.configure(text="Done!", text_color="green")
-        self.cancel_button.lower()  # Hide the cancel button after finishing
-        self.home_button.lift()  # Show the home button after finishing
-
-    def _update_cancelled(self):
-        """Update the UI after the clearing process is cancelled."""
-        self.count.configure(text="Cancelled", text_color="red")
-        self.home_button.lift()  # Show the home button after cancelling
-
-    def clear_boxes(self, data):
-        """Deleting Count in Input."""
-        # Type the data as a string
-        pyautogui.typewrite(str(data))
-        time.sleep(0.1)
-        pyautogui.press("enter")  # Press Enter to press confirm button
-        time.sleep(0.1)
-        pyautogui.press("esc")  # Press esc to dismiss confirm dialog box
-
-##### Key Page Configuration #####
-""" Main Function to Fill in the inputs."""
+# ─── KeyPage ──────────────────────────────────────────────────────────────────
 
 class KeyPage(ctk.CTkFrame):
     def __init__(self, parent, controller):
         super().__init__(parent)
         self.controller = controller
+        self.configure(fg_color=BG)
 
         global pathVar, cellVar, sheetVar
-
-        pathVar = tk.StringVar()
-        cellVar = tk.StringVar()
+        pathVar  = tk.StringVar()
+        cellVar  = tk.StringVar()
         sheetVar = tk.StringVar()
 
-        self.configure(fg_color="#384959")
+        # Header
+        header = ctk.CTkFrame(self, fg_color=HEADER_BG, height=60, corner_radius=0)
+        header.place(relx=0, rely=0, relwidth=1)
 
-        self.title2 = ctk.CTkLabel(self,
-            text="K E Y", 
-            font=("Inter", 26, "bold"), 
-            text_color="white",
-            fg_color="#6A89A7",
-            anchor="center",
-            width=200,
-            height=50
-            )
-        self.title2.place(relx=0.5, rely=0.2, anchor=CENTER)
+        ctk.CTkButton(
+            header, text="← Back",
+            font=("Inter", 13), width=80, height=36,
+            fg_color="transparent", text_color=SUBTEXT, hover_color=SURFACE,
+            command=self.backhome
+        ).place(relx=0.03, rely=0.5, anchor="w")
 
-        self.back_default_img = ImageTk.PhotoImage(Image.open("components/defaultback.png").resize((30, 30), Image.Resampling.BICUBIC))
-        
-        self.key_page_button = ctk.CTkButton(self, 
-            image=self.back_default_img, 
+        ctk.CTkLabel(
+            header, text="K E Y",
+            font=("Inter", 20, "bold"), text_color=TEXT, fg_color="transparent"
+        ).place(relx=0.5, rely=0.5, anchor=CENTER)
 
-            width=20, height=20,
-            text="",
-            fg_color="transparent",
-            hover_color="#6A89A7",
-            command=lambda: self.backhome()
-            )
-        self.key_page_button.place(relx=0.1, rely=0.2, anchor=CENTER)
+        # Card
+        card = ctk.CTkFrame(self, fg_color=SURFACE, corner_radius=14)
+        card.place(relx=0.5, rely=0.58, anchor=CENTER, relwidth=0.88, relheight=0.72)
 
-        promptDesc = ctk.CTkLabel(self,
-        text="Note: A 5 Second Countdown will start after pressing Confirm. \n Please ensure you are ready to select the PI Count Box...",
-        font=("Inter", 13, "italic"),
-        text_color="white",
-        anchor="center",
-        width=200
-        )
-        promptDesc.place(relx=0.5, rely=0.31, anchor=CENTER)
+        ctk.CTkLabel(
+            card,
+            text="A 5-second countdown starts after Confirm.\nSwitch to the PI Count box before time runs out.",
+            font=("Inter", 12, "italic"), text_color=SUBTEXT, justify="center"
+        ).place(relx=0.5, rely=0.09, anchor=CENTER)
 
-        self.file_path_text = ctk.CTkLabel(self, 
-            text="Excel File Path:", 
-            font=("Inter", 15, "bold"), 
-            text_color="white")
-        self.file_path_text.place(relx=0.3, rely=0.4, anchor=CENTER)
+        # File path
+        ctk.CTkLabel(
+            card, text="Excel File Path:",
+            font=("Inter", 13, "bold"), text_color=TEXT
+        ).place(relx=0.05, rely=0.22, anchor="w")
 
-        self.file_path_entry = ctk.CTkEntry(self, 
-            placeholder_text="Enter Excel File Path...", 
-            width=300, 
-            height=40, 
+        self.file_path_entry = ctk.CTkEntry(
+            card, placeholder_text="Enter or browse for Excel file path...",
+            width=468, height=38, border_color=BORDER, fg_color=BG, text_color=TEXT,
             textvariable=pathVar
-            )
-        self.file_path_entry.pack(padx=(160, 3), side=ctk.LEFT)
+        )
+        self.file_path_entry.place(relx=0.05, rely=0.34, anchor="w")
 
-        self.browse_button = ctk.CTkButton(self, 
-            text="Browse...", 
-            width=100, 
-            height=40,
-            font=("Inter", 12, "bold"),
-            fg_color="#88BDF2",
-            text_color="black",
+        ctk.CTkButton(
+            card, text="Browse",
+            font=("Inter", 12, "bold"), fg_color=ACCENT, hover_color=ACCENT_HOV,
+            text_color="#000000", width=90, height=38,
             command=self.browse_file
-        )
-        self.browse_button.pack(padx=(0, 0), side=ctk.LEFT)
+        ).place(relx=0.94, rely=0.34, anchor="e")
 
-        self.startingcell_text = ctk.CTkLabel(self, 
-            text="Starting Cell:", 
-            font=("Inter", 15, "bold"), 
-            text_color="white")
-        self.startingcell_text.place(relx=0.285, rely=0.62, anchor=CENTER)
+        # Starting cell
+        ctk.CTkLabel(
+            card, text="Starting Cell:",
+            font=("Inter", 13, "bold"), text_color=TEXT
+        ).place(relx=0.05, rely=0.50, anchor="w")
 
-        self.cell_entry = ctk.CTkEntry(self,
-            placeholder_text="Enter Starting Cell (Ex. C2)", 
-            width=55, 
-            height=40, 
+        self.cell_entry = ctk.CTkEntry(
+            card, placeholder_text="e.g. C2",
+            width=120, height=38, border_color=BORDER, fg_color=BG, text_color=TEXT,
             textvariable=cellVar
-            )
-        self.cell_entry.place(relx=0.4, rely=0.62, anchor=CENTER)
-
-        self.sheet_text = ctk.CTkLabel(self, 
-            text="Sheet Name:", 
-            font=("Inter", 15, "bold"), 
-            text_color="white")
-        self.sheet_text.place(relx=0.56, rely=0.62, anchor=CENTER)
-
-        self.sheet_entry = ctk.CTkEntry(self,
-            placeholder_text="Enter Sheet Name (Ex. Sheet1)", 
-            width=100, 
-            height=40, 
-            textvariable=sheetVar
-            )
-        self.sheet_entry.place(relx=0.71, rely=0.62, anchor=CENTER)
-
-        self.begin_keying_button = ctk.CTkButton(self,
-            text="Confirm", 
-            font=("Inter", 17, "bold"), 
-            width=200, 
-            height=40,
-            fg_color="#88BDF2",
-            text_color="black", 
-            command=lambda: self.validate_input()
         )
-        self.begin_keying_button.place(relx=0.5, rely=0.8, anchor=CENTER)
+        self.cell_entry.place(relx=0.05, rely=0.62, anchor="w")
 
-        self.error_text = ctk.CTkLabel(self, text="No Data Found", font=("Inter", 15, "bold"), text_color="red")
-        self.error_text.place(relx=0.5, rely=0.71, anchor=CENTER)
-        self.error_text.lower()
+        # Sheet name
+        ctk.CTkLabel(
+            card, text="Sheet Name:",
+            font=("Inter", 13, "bold"), text_color=TEXT
+        ).place(relx=0.53, rely=0.50, anchor="w")
+
+        self.sheet_entry = ctk.CTkEntry(
+            card, placeholder_text="e.g. Sheet1",
+            width=165, height=38, border_color=BORDER, fg_color=BG, text_color=TEXT,
+            textvariable=sheetVar
+        )
+        self.sheet_entry.place(relx=0.53, rely=0.62, anchor="w")
+
+        self.error_text = ctk.CTkLabel(
+            card, text="", font=("Inter", 12), text_color=ERROR
+        )
+        self.error_text.place(relx=0.5, rely=0.76, anchor=CENTER)
+
+        ctk.CTkButton(
+            card, text="Confirm",
+            font=("Inter", 15, "bold"), fg_color=ACCENT, hover_color=ACCENT_HOV,
+            text_color="#000000", width=200, height=40,
+            command=self.validate_input
+        ).place(relx=0.5, rely=0.88, anchor=CENTER)
 
     def backhome(self):
-        """Return to Home and reset flags."""
         cellVar.set("")
         pathVar.set("")
         sheetVar.set("")
-        self.error_text.configure(text="VALIDATING DATA...", text_color="white")
-        self.error_text.lower()
-        self.controller.show_page("Home")  # Go back to home
+        self.error_text.configure(text="")
+        self.file_path_entry.configure(border_color=BORDER)
+        self.cell_entry.configure(border_color=BORDER)
+        self.sheet_entry.configure(border_color=BORDER)
+        self.controller.show_page("Home")
 
     def validate_input(self):
-        global cellVar, sheetVar, pathVar, validExcel
-
-        self.error_text.configure(text="VALIDATING DATA...", text_color="white")
-        self.error_text.lift()
+        global validExcel
+        self.error_text.configure(text="Validating...")
         self.update()
 
-        # Clean up file path (remove any "" if found)
         excelfile = pathVar.get().replace('"', '')
-        pathVar.set(excelfile)  # Optional: update entry with cleaned path
-
-        cell = cellVar.get()
+        pathVar.set(excelfile)
+        cell  = cellVar.get()
         sheet = sheetVar.get()
 
-        # Initialize the container if not already
-        if 'validExcel' not in globals():
-            validExcel = tk.StringVar()
-
         try:
-            excelValue = self.read_excel_column(excelfile, sheet, cell)
+            values = self._read_excel_column(excelfile, sheet, cell)
 
-            # Check if excelValue is empty or None
-            if not excelValue or excelValue == ["", None]:
-                self.error_text.configure(text="NO DATA FOUND.", text_color="red")
-                self.error_text.lift()
-                return  # stop execution if invalid
+            if not values:
+                self.error_text.configure(text="No data found at that location.")
+                return
 
-            # Check if all values are valid (non-negative integers)
-            invalid_values = [value for value in excelValue if not isinstance(value, int) or value < 0]
-            if invalid_values:
-                self.error_text.configure(text="NOT VALID ENTRY", text_color="red")
-                self.error_text.lift()
-                return  # stop execution if invalid
+            bad = [v for v in values if not isinstance(v, int) or v < 0]
+            if bad:
+                self.error_text.configure(text=f"Invalid data in column: {bad[:3]}...")
+                return
 
-            # If validation passed
-            self.error_text.lower()
-            validExcel = excelValue  # Store the validated data
-            self.controller.show_page("countDown2")
+            self.error_text.configure(text="")
+            with excel_lock:
+                validExcel = values
 
-            # Clear inputs AFTER validation
             cellVar.set("")
             pathVar.set("")
             sheetVar.set("")
+            self.controller.show_page("countDown2")
 
         except Exception as e:
             print("Validation Error:", e)
-            self.error_text.configure(text=str(e), text_color="red")
-            self.error_text.lift()
-            
-    def read_excel_column(self, file_path, sheet_name, start_cell):
-        """Read values from a column in an Excel file until an empty cell is encountered."""
-        try:
-            print(f"Reading from: {file_path}")
-            workbook = openpyxl.load_workbook(file_path, data_only=True)
-            print(f"Available sheets: {workbook.sheetnames}")
-            
-            if sheet_name not in workbook.sheetnames:
-                raise ValueError(f"Sheet '{sheet_name}' not found.")
-            
-            sheet = workbook[sheet_name]
+            self.error_text.configure(text=str(e))
 
-            from openpyxl.utils.cell import coordinate_from_string, column_index_from_string
-            col_letter, row = coordinate_from_string(start_cell)
-            start_column = column_index_from_string(col_letter)
-            start_row = row
-
-            # Read values from the column
-            values = []
-            for r in range(start_row, sheet.max_row + 1):
-                cell_value = sheet.cell(row=r, column=start_column).value
-                if cell_value is None:
-                    break
-                values.append(cell_value)
-
-            print("Values found:", values)
-            return values  # <--- Important: return the list of values
-
-        except Exception as e:
-            print(f"Error reading Excel file: {e}")
-            return []
+    def _read_excel_column(self, file_path, sheet_name, start_cell):
+        """Read non-empty values from a column starting at start_cell."""
+        wb = openpyxl.load_workbook(file_path, data_only=True)
+        if sheet_name not in wb.sheetnames:
+            raise ValueError(f"Sheet '{sheet_name}' not found.")
+        ws = wb[sheet_name]
+        from openpyxl.utils.cell import coordinate_from_string, column_index_from_string
+        col_letter, start_row = coordinate_from_string(start_cell)
+        start_col = column_index_from_string(col_letter)
+        values = []
+        for r in range(start_row, ws.max_row + 1):
+            v = ws.cell(row=r, column=start_col).value
+            if v is None:
+                break
+            values.append(v)
+        return values
 
     def browse_file(self):
-        """Opens file dialog and sets the selected path into the entry."""
-        file_path = filedialog.askopenfilename(
+        path = filedialog.askopenfilename(
             title="Select Excel File",
             filetypes=[("Excel Files", "*.xlsx *.xls")]
         )
-        if file_path:
-            pathVar.set(file_path)
+        if path:
+            pathVar.set(path)
 
-class countDownPage2(ctk.CTkFrame):
-    def __init__(self, parent, controller, countdown_time=5):
+
+# ─── CountDownPage (unified for both modes) ───────────────────────────────────
+
+class CountDownPage(ctk.CTkFrame):
+    """Unified countdown + execution page for both 'key' and 'clear' modes."""
+
+    def __init__(self, parent, controller, mode: str, countdown_time: int = 5):
         super().__init__(parent)
-        self.controller = controller
+        self.controller     = controller
+        self.mode           = mode           # "key" | "clear"
         self.countdown_time = countdown_time
-        self._cancelled = False  # Add cancellation flag
+        self._cancelled     = False
+        self.remaining      = 0
 
-        self.configure(fg_color="#384959")
+        self.configure(fg_color=BG)
 
-        self.count_text = ctk.CTkLabel(self, 
-            text="Starting in", 
-            font=("Inter", 26, "bold"), 
-            text_color="white")
-        self.count_text.place(relx=0.5, rely=0.3, anchor=CENTER)
+        # Header
+        header = ctk.CTkFrame(self, fg_color=HEADER_BG, height=60, corner_radius=0)
+        header.place(relx=0, rely=0, relwidth=1)
 
-        self.count = ctk.CTkLabel(self, 
-            text="", 
-            font=("Inter", 40, "bold"), 
-            text_color="#213448")
-        self.count.place(relx=0.5, rely=0.4, anchor=CENTER)
+        ctk.CTkLabel(
+            header,
+            text="K E Y I N G" if mode == "key" else "C L E A R I N G",
+            font=("Inter", 20, "bold"), text_color=TEXT, fg_color="transparent"
+        ).place(relx=0.5, rely=0.5, anchor=CENTER)
 
-        # Home button (hidden at start)
-        self.home_button = ctk.CTkButton(
-            self,
-            text="Return to Home",
-            font=("Inter", 17, "bold"),
-            width=200,
-            height=40,
-            command=lambda: self.return_home()  # Use method to return to home
+        # Large count display
+        self.count = ctk.CTkLabel(
+            self, text="",
+            font=("Inter", 72, "bold"), text_color=TEXT
         )
-        self.home_button.place(relx=0.5, rely=0.6, anchor=CENTER)
-        self.home_button.lower()  # Hide initially
+        self.count.place(relx=0.5, rely=0.42, anchor=CENTER)
+
+        # Sub-status label
+        self.sub_label = ctk.CTkLabel(
+            self, text="",
+            font=("Inter", 14), text_color=SUBTEXT
+        )
+        self.sub_label.place(relx=0.5, rely=0.60, anchor=CENTER)
+
+        # Hotkey hint
+        ctk.CTkLabel(
+            self,
+            text="Ctrl+Shift+Q to stop at any time",
+            font=("Inter", 11), text_color=BORDER
+        ).place(relx=0.5, rely=0.72, anchor=CENTER)
 
         # Cancel button
         self.cancel_button = ctk.CTkButton(
-            self,
-            text="Cancel",
-            font=("Inter", 17, "bold"),
-            fg_color="#88BDF2",
-            text_color="black",
-            width=200,
-            height=40,
-            command=self.cancel_countdown  # Cancel countdown
+            self, text="Cancel",
+            font=("Inter", 14, "bold"),
+            fg_color="transparent", border_width=2, border_color=ERROR,
+            text_color=ERROR, hover_color=SURFACE,
+            width=160, height=38,
+            command=self.cancel_countdown
         )
-        self.cancel_button.place(relx=0.5, rely=0.7, anchor=CENTER)
+        self.cancel_button.place(relx=0.5, rely=0.83, anchor=CENTER)
 
-    def cancel_countdown(self):
-        """Cancel countdown and reset the flag."""
-        self._cancelled = True  # Set the cancel flag
-        global stop_flag
-        stop_flag = True  # Set stop_flag to True to stop the process
-        self.count.configure(text="Cancelled", text_color="red")
-        cellVar.set("")  # Clear the entry field after processing
-        pathVar.set("")
-        sheetVar.set("")
-        self.count_text.configure(text="")  # Clear the "Starting in" text
-        self.home_button.lift()  # Show the Home button so user can go back manually
-        self.cancel_button.lower()  # Hide the Cancel button after cancellation
+        # Home button (shown after done/cancel)
+        self.home_button = ctk.CTkButton(
+            self, text="Return to Home",
+            font=("Inter", 14, "bold"),
+            fg_color=ACCENT, hover_color=ACCENT_HOV, text_color="#000000",
+            width=180, height=40,
+            command=self.return_home
+        )
+        self.home_button.place(relx=0.5, rely=0.83, anchor=CENTER)
+        self.home_button.lower()
 
-    def return_home(self):
-        """Return to Home and reset flags."""
-        global stop_flag
-        stop_flag = False  # Reset stop flag for future runs
-        self._cancelled = False  # Reset cancel flag
-        self.count_text.configure(text="Starting in", text_color="white")
-        self.controller.show_page("Home")  # Go back to home
+    # ── Lifecycle ──────────────────────────────────────────────────────────────
 
     def start_countdown(self):
-        self.controller.pages["Key"].cell_entry.configure(border_color="#6A89A7")
-        self.controller.pages["Key"].sheet_entry.configure(border_color="#6A89A7")
-        self.controller.pages["Key"].file_path_entry.configure(border_color="#6A89A7")
-        self.remaining = self.countdown_time
+        """Reset state and begin countdown. Called by App.show_page."""
+        stop_event.clear()
+        self._cancelled = False
+        self.remaining  = self.countdown_time
         self.cancel_button.lift()
-        self.home_button.lower()  # Hide button if revisiting
-        self.count.configure(text="", text_color="white")
-        self._update_timer()
+        self.home_button.lower()
+        self.count.configure(text="", text_color=TEXT)
+        self.sub_label.configure(text="Starting in...", text_color=SUBTEXT)
+        self._tick()
 
-    def _update_timer(self):
-        if self.remaining >= 0 and not self._cancelled:  # Check if not cancelled
-            self.count.configure(text=self.remaining)
+    def _tick(self):
+        if stop_event.is_set():
+            self._cancelled = True
+
+        if not self._cancelled and self.remaining >= 0:
+            self.count.configure(text=str(self.remaining), text_color=TEXT)
             self.remaining -= 1
-            self.update()  # Force UI update to display Cancel button
-            self.after(1000, self._update_timer)
+            self.after(1000, self._tick)
+        elif not self._cancelled:
+            self.count.configure(text="GO", text_color=ACCENT)
+            self.sub_label.configure(text="Starting...", text_color=TEXT)
+            self.after(600, self._start_worker)
         else:
-            if not self._cancelled:
-                self.count_text.configure(text="")
-                self.count.configure(text="Keying has started!")
-                self.count.configure(text_color="white")
-                self.after(500, self.on_key_finished)  # Call on_key_finished after countdown
-            else:
-                # If cancelled, stop further action and reset
-                self.count.configure(text="Cancelled", text_color="red")
+            self._show_cancelled()
 
-    def on_key_finished(self):
-        """Start the keying process in a separate thread."""
-        thread = threading.Thread(target=self.start_key_thread)
-        thread.daemon = True # Make thread a daemon so it exits when the main program exits
-        thread.start()
+    def _start_worker(self):
+        if stop_event.is_set() or self._cancelled:
+            self._show_cancelled()
+            return
+        t = threading.Thread(target=self._run_process, daemon=True)
+        t.start()
 
-    def start_key_thread(self):
-        """Runs the clearing logic and updates UI from main thread."""
-        self.start_key()
+    def _show_cancelled(self):
+        self.count.configure(text="✕", text_color=ERROR)
+        self.sub_label.configure(text="Cancelled", text_color=ERROR)
+        self.home_button.lift()
+        self.cancel_button.lower()
 
-    def start_key(self):
-        global stop_flag, validExcel
-        values = validExcel
-        validExcel = []
-        for value in values:
-            if stop_flag:
-                print("Process stopped by user.")
+    # ── Cancel / Navigation ────────────────────────────────────────────────────
+
+    def cancel_countdown(self):
+        self._cancelled = True
+        stop_event.set()
+        self._clear_inputs()
+        self._show_cancelled()
+
+    def return_home(self):
+        stop_event.clear()
+        self._cancelled = False
+        self.controller.show_page("Home")
+
+    def _clear_inputs(self):
+        if self.mode == "clear":
+            if entryVar:
+                entryVar.set("")
+        else:
+            for var in (cellVar, pathVar, sheetVar):
+                if var:
+                    var.set("")
+
+    # ── Worker ─────────────────────────────────────────────────────────────────
+
+    def _run_process(self):
+        if self.mode == "clear":
+            self._run_clear()
+        else:
+            self._run_key()
+
+    def _run_clear(self):
+        try:
+            boxes = int(entryVar.get())
+        except (ValueError, TypeError):
+            self.after(0, lambda: (
+                self.count.configure(text="Err", text_color=ERROR),
+                self.sub_label.configure(text="Invalid box count", text_color=ERROR),
+                self.home_button.lift(),
+                self.cancel_button.lower()
+            ))
+            return
+
+        self.after(0, lambda: entryVar.set(""))
+
+        for i in range(boxes):
+            if stop_event.is_set():
                 break
-            print(f"Typing value: {value}")
-            self.type_to_program(value)
-            time.sleep(0.6)
-        
-        if not stop_flag:
-            validExcel = []
-            self.after(1000, self._update_done)  # Update UI after process is done
-        else:
-            validExcel = []
-            self.after(1000, self._update_cancelled)  # Update UI after process is cancelled
+            label = f"{i + 1} / {boxes}"
+            self.after(0, lambda l=label: (
+                self.count.configure(text=l, text_color=TEXT),
+                self.sub_label.configure(text="Clearing...", text_color=SUBTEXT)
+            ))
+            pyautogui.typewrite("-1")
+            time.sleep(0.1)
+            pyautogui.press("enter")
+            time.sleep(0.1)
+            pyautogui.press("esc")
+            time.sleep(0.1)
 
-        
+        if not stop_event.is_set():
+            self.after(500, self._update_done)
+        else:
+            self.after(500, self._update_cancelled)
+
+    def _run_key(self):
+        global validExcel
+        with excel_lock:
+            values = list(validExcel)
+            validExcel = []
+
+        total = len(values)
+        for i, value in enumerate(values):
+            if stop_event.is_set():
+                break
+            label = f"{i + 1} / {total}"
+            self.after(0, lambda l=label: (
+                self.count.configure(text=l, text_color=TEXT),
+                self.sub_label.configure(text="Keying...", text_color=SUBTEXT)
+            ))
+            pyautogui.typewrite(str(value))
+            pyautogui.press("enter")
+            pyautogui.press("esc")
+            time.sleep(0.6)
+
+        if not stop_event.is_set():
+            self.after(500, self._update_done)
+        else:
+            self.after(500, self._update_cancelled)
+
+    # ── UI Updates (called from main thread via after()) ───────────────────────
+
     def _update_done(self):
-        """Update the UI after the clearing process is done."""
-        self.count.configure(text="Done!", text_color="green")
-        self.cancel_button.lower()  # Hide the cancel button after finishing
-        self.home_button.lift()  # Show the home button after finishing
+        self.count.configure(text="✓", text_color=ACCENT)
+        self.sub_label.configure(text="Done!", text_color=ACCENT)
+        self.cancel_button.lower()
+        self.home_button.lift()
 
     def _update_cancelled(self):
-        """Update the UI after the clearing process is cancelled."""
-        self.count.configure(text="Cancelled", text_color="red")
-        self.home_button.lift()  # Show the home button after cancelling
-
-    def type_to_program(self, data):
-        """Type data directly into another program."""
-        # Type the data as a string
-        pyautogui.typewrite(str(data))  # Utilizes pyautogui library to simulate user typing
-        pyautogui.press("enter")  # Will simulate the enter key being pressed
-        pyautogui.press("esc")  # Dismisses the popup confirmation after keying in a quantity
+        self._show_cancelled()
 
 
-##### Home Page Configuration #####
-""" Hub Page to access the different Functions. """
+# ─── HomePage ─────────────────────────────────────────────────────────────────
 
 class HomePage(ctk.CTkFrame):
     def __init__(self, parent, controller):
         super().__init__(parent)
         self.controller = controller
+        self.configure(fg_color=BG)
 
-        self.configure(fg_color="#384959")
+        # Header banner
+        header = ctk.CTkFrame(self, fg_color=HEADER_BG, height=110, corner_radius=0)
+        header.place(relx=0, rely=0, relwidth=1)
 
-        title1 = ctk.CTkLabel(self,
-        text="P I   C O U N T   A U T O K E Y", 
-        font=("Inter", 24, "bold"),
-        text_color="white",
-        bg_color="#6A89A7", 
-        anchor="center", 
-        width=450,
-        height= 70
-        )
-        title1.place(relx=0.5, rely=0.2, anchor=CENTER)
+        ctk.CTkLabel(
+            header, text="PI COUNT AUTOKEY",
+            font=("Inter", 28, "bold"), text_color=TEXT, fg_color="transparent"
+        ).place(relx=0.5, rely=0.42, anchor=CENTER)
 
-        subtitle1 = ctk.CTkLabel(self,
-        text="Are You Keying or Clearing?",
-        font=("Inter", 15, "bold"),
-        text_color="white",
-        anchor="center",
-        width=700
-        )
-        subtitle1.place(relx=0.5, rely=0.33, anchor=CENTER)
+        ctk.CTkLabel(
+            header, text="Automated keyboard entry for Physical Inventory",
+            font=("Inter", 12), text_color=SUBTEXT, fg_color="transparent"
+        ).place(relx=0.5, rely=0.73, anchor=CENTER)
 
-        buttons_frame = ctk.CTkFrame(self, fg_color="#384959", width=400, height=60)
-        buttons_frame.place(relx=0.5, rely=0.5, anchor=CENTER)
+        # Prompt
+        ctk.CTkLabel(
+            self, text="What would you like to do?",
+            font=("Inter", 15), text_color=SUBTEXT
+        ).place(relx=0.5, rely=0.46, anchor=CENTER)
 
-        key_page_button = ctk.CTkButton(buttons_frame, 
-            text="KEY", 
-            font=("Inter", 17, "bold"), 
-            width=100, 
-            height=50,
-            fg_color="#88BDF2",
-            text_color="black",
-            command=lambda: controller.show_page("Key"))
-        key_page_button.pack(padx=(0,33), side=ctk.LEFT)
-        
-        back_button = ctk.CTkButton(buttons_frame, 
-            text="CLEAR", 
-            font=("Inter", 17, "bold"), 
-            width=100, 
-            height=50,
-            fg_color="#88BDF2",
-            text_color="black",
-            command=lambda: controller.show_page("Clear"))
-        back_button.pack(padx=(0,0), side=ctk.RIGHT)
+        # Card buttons
+        btn_frame = ctk.CTkFrame(self, fg_color="transparent")
+        btn_frame.place(relx=0.5, rely=0.65, anchor=CENTER)
 
-##### Program Set up #####
-""" Sets up Window for Program, keep track of the pages for navigation. """
+        ctk.CTkButton(
+            btn_frame, text="⌨  KEY",
+            font=("Inter", 18, "bold"),
+            fg_color=SURFACE, border_color=ACCENT, border_width=2,
+            hover_color="#1a2b1a", text_color=ACCENT,
+            width=165, height=85, corner_radius=14,
+            command=lambda: controller.show_page("Key")
+        ).pack(side="left", padx=14)
+
+        ctk.CTkButton(
+            btn_frame, text="✕  CLEAR",
+            font=("Inter", 18, "bold"),
+            fg_color=SURFACE, border_color=BORDER, border_width=2,
+            hover_color="#1e2130", text_color=TEXT,
+            width=165, height=85, corner_radius=14,
+            command=lambda: controller.show_page("Clear")
+        ).pack(side="left", padx=14)
+
+        # Footer
+        ctk.CTkLabel(
+            self, text="v2.0  ·  PI Count AutoKey  ·  Ctrl+Shift+Q to stop",
+            font=("Inter", 10), text_color=SUBTEXT
+        ).place(relx=0.5, rely=0.92, anchor=CENTER)
+
+
+# ─── App ──────────────────────────────────────────────────────────────────────
 
 class App(ctk.CTk):
     def __init__(self):
         super().__init__()
         self.title("PI Count AutoKey")
         self.geometry("720x480")
+        self.configure(fg_color=BG)
+        self.resizable(False, False)
 
         self.grid_rowconfigure(0, weight=1)
         self.grid_columnconfigure(0, weight=1)
 
-        # Container for all pages
-        container = ctk.CTkFrame(self)
+        container = ctk.CTkFrame(self, fg_color=BG)
         container.pack(fill="both", expand=True)
-
-        # Let container expand
         container.grid_rowconfigure(0, weight=1)
         container.grid_columnconfigure(0, weight=1)
 
-        # Dictionary to hold references to pages
         self.pages = {}
-
-       # Create and grid pages, hide all initially
-        for PageClass, name in [(HomePage, "Home"), 
-            (KeyPage, "Key"), 
-            (ClearPage, "Clear"), 
-            (countDownPage, "countDown"),
-            (countDownPage2, "countDown2")
-            ]:
-            page = PageClass(container, self)
+        for PageClass, name, kwargs in [
+            (HomePage,      "Home",       {}),
+            (KeyPage,       "Key",        {}),
+            (ClearPage,     "Clear",      {}),
+            (CountDownPage, "countDown",  {"mode": "clear"}),
+            (CountDownPage, "countDown2", {"mode": "key"}),
+        ]:
+            page = PageClass(container, self, **kwargs)
             self.pages[name] = page
             page.grid(row=0, column=0, sticky="nsew")
-            page.lower()  # Hide by default
-
-        self.show_page("Home")  # Show the home page first
-
-    def show_page(self, page_name):
-        """Show a page by name."""
-        for page in self.pages.values():
             page.lower()
 
-        # Raise only the one we want
-        self.pages[page_name].tkraise()
+        # Global emergency stop hotkey
+        self._hotkey = kb.GlobalHotKeys({"<ctrl>+<shift>+q": self._emergency_stop})
+        self._hotkey.start()
 
-        # Start Countdown if on the countdown page
-        if page_name == "countDown":
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
+        self.show_page("Home")
+
+    def _emergency_stop(self):
+        stop_event.set()
+
+    def _on_close(self):
+        self._hotkey.stop()
+        self.destroy()
+
+    def show_page(self, page_name: str):
+        for page in self.pages.values():
+            page.lower()
+        self.pages[page_name].tkraise()
+        if page_name in ("countDown", "countDown2"):
             self.pages[page_name].start_countdown()
-        
-        if page_name == "countDown2":
-            self.pages[page_name].start_countdown()
+
 
 if __name__ == "__main__":
     app = App()
